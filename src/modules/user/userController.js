@@ -10,7 +10,13 @@ const createUser = async (req, res) => {
     try {
         const { fullName, email, phoneNumber, password, userRole, confirmPass } = req.body;
 
-        if (!email || !phoneNumber || !password || !confirmPass) {
+        const emailAllreadyRegistered =await  registeredUser.findOne({email});
+
+        if(emailAllreadyRegistered) {
+            return res.status(400).json({message: "Email All ready Registered. Please Login or Forget Password"})
+        }
+
+        if (!fullName || !email || !phoneNumber || !password || !confirmPass) {
             return res.status(400).json({ "success": 'Email, phone number, password, and confirm password are required' });
         }
 
@@ -44,11 +50,8 @@ const createUser = async (req, res) => {
 
         await registeredUser.insertOne(newUser);
 
-        const accessToken = jwt.sign({ email, phoneNumber }, 'your-secret-key', { expiresIn: '1h' });
-
         res.status(201).json({
             message: 'User successfully registered',
-            accessToken: accessToken
         });
 
     } catch (error) {
@@ -58,4 +61,51 @@ const createUser = async (req, res) => {
 };
 
 
-module.exports = createUser;
+const loginUser = async (req, res) => {
+    const Database = getDB();
+    const registeredUser = Database.collection('registeredUser');
+
+    try {
+        const { email, password } = req.body;
+
+        if (!email || !password) {
+            return res.status(400).json({ error: 'Email and password are required' });
+        }
+
+        const user = await registeredUser.findOne({ email });
+        const userID = user._id;
+        const phone = user.phoneNumber;
+        const role = user.userRole;
+
+        if (!user) {
+            return res.status(400).json({ error: 'Invalid credentials' });
+        }
+
+        const isMatch = await bcrypt.compare(password, user.password);
+
+        if (!isMatch) {
+            return res.status(400).json({ error: 'Invalid credentials' });
+        }
+
+        const accessToken = jwt.sign({ email,phone,role,userID }, process.env.SECRET_KEY, { expiresIn: '1h' });
+
+        const refreshToken = jwt.sign({ email,phone,role,userID }, process.env.REFRESH_SECRET_KEY, { expiresIn: '7d' });
+
+        await registeredUser.updateOne({ email }, { $set: { refreshToken } });
+
+        res.status(200).json({
+            message: 'Login successful',
+            accessToken: accessToken,
+            refreshToken: refreshToken,
+            userInformation: user
+        });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Server error' });
+    }
+};
+
+
+
+module.exports = { createUser, loginUser };
